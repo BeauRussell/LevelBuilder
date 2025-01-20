@@ -5,21 +5,27 @@ import "core:math"
 import "core:strings"
 import "vendor:raylib"
 
-WINDOW_WIDTH : i32 : 1280
-WINDOW_HEIGHT : i32 : 720
+WINDOW_WIDTH :: 1280
+WINDOW_HEIGHT :: 720
+TILE_DIMENSION :: 32
+TILE_ROW_LENGTH :: WINDOW_WIDTH / TILE_DIMENSION
+TILE_COL_LENGTH :: WINDOW_HEIGHT / TILE_DIMENSION + 1
+NUM_TILES :: TILE_ROW_LENGTH * TILE_COL_LENGTH 
 
 main :: proc() {
-    raylib.InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Level Builder")
+    raylib.InitWindow(i32(WINDOW_WIDTH), i32(WINDOW_HEIGHT), "Level Builder")
     raylib.SetTargetFPS(60)
+	raylib.SetTraceLogLevel(.ERROR)
 
-	buff : [920]u8
+	buff : [NUM_TILES]u8
+	defer free(&buff)
 
 	for !raylib.WindowShouldClose() {
 		raylib.BeginDrawing()
 		defer raylib.EndDrawing()
 
 		raylib.ClearBackground(raylib.RAYWHITE)
-		draw_grid()
+		draw_grid(&buff)
 
 		selected_tile := check_mouse_input()
 		if selected_tile == -1 {
@@ -29,14 +35,15 @@ main :: proc() {
 	}
 }
 
-draw_grid :: proc() {
-	for i := 0; i < 40; i += 1 {
-		x := 32 * i
-		raylib.DrawLine(i32(x), 0, i32(x), WINDOW_HEIGHT, raylib.BLACK)
-	}
-	for i := 0; i < 40; i += 1 {
-		y := 32 * i
-		raylib.DrawLine(0, i32(y), WINDOW_WIDTH, i32(y), raylib.BLACK)
+draw_grid :: proc(buff: ^[NUM_TILES]u8) {
+	for i := 0; i < NUM_TILES; i += 1 {
+		x := (i % TILE_ROW_LENGTH) * TILE_DIMENSION
+		y := i / TILE_ROW_LENGTH * TILE_DIMENSION
+
+		texture := load_texture(buff[i])
+		raylib.DrawTexture(texture, i32(x), i32(y), raylib.WHITE)
+
+		raylib.DrawRectangleLines(i32(x), i32(y), TILE_DIMENSION, TILE_DIMENSION, raylib.BLACK)
 	}
 }
 
@@ -50,4 +57,18 @@ check_mouse_input :: proc() -> int {
 		return horizontal_index + (vertical_index * 40)
 	}
 	return -1
+}
+
+load_texture :: proc(id: u8) -> raylib.Texture {
+	sb := strings.builder_make()
+	defer strings.builder_destroy(&sb)
+	strings.write_string(&sb, "./assets/")
+	strings.write_uint(&sb, uint(id))
+	strings.write_string(&sb, ".png")
+	file_path := strings.clone_to_cstring(strings.to_string(sb))
+
+	image := raylib.LoadImage(file_path)
+	defer raylib.UnloadImage(image)
+
+	return raylib.LoadTextureFromImage(image)
 }
