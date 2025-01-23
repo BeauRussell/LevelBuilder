@@ -11,31 +11,42 @@ TILE_DIMENSION :: 32
 TILE_ROW_LENGTH :: WINDOW_WIDTH / TILE_DIMENSION
 TILE_COL_LENGTH :: WINDOW_HEIGHT / TILE_DIMENSION + 1
 NUM_TILES :: TILE_ROW_LENGTH * TILE_COL_LENGTH 
+TOTAL_TILES :: 9
 
 main :: proc() {
     raylib.InitWindow(i32(WINDOW_WIDTH), i32(WINDOW_HEIGHT), "Level Builder")
     raylib.SetTargetFPS(60)
 	raylib.SetTraceLogLevel(.ERROR)
 
-	buff : [NUM_TILES]u8
-	defer free(&buff)
+	buff: [NUM_TILES]u8
+	change_tile_open := false
+	drawing_tile_id := 0
 
 	for !raylib.WindowShouldClose() {
 		raylib.BeginDrawing()
 		defer raylib.EndDrawing()
 
-		raylib.ClearBackground(raylib.RAYWHITE)
-		draw_grid(&buff)
+		draw_grid(buff[:])
+		switch_state := draw_select_tile_text(&change_tile_open)
+		click_on_change_window: bool
+		if change_tile_open {
+			click_on_change_window = draw_select_tile_menu(&drawing_tile_id)
+		}
+		if switch_state || click_on_change_window {
+			continue
+		}
 
 		selected_tile := check_mouse_input()
 		if selected_tile == -1 {
 			continue
 		}
-		fmt.printf("Clicked box: %i\n", selected_tile)
+
+		buff[selected_tile] = u8(drawing_tile_id)
+		change_tile_open = false
 	}
 }
 
-draw_grid :: proc(buff: ^[NUM_TILES]u8) {
+draw_grid :: proc(buff: []u8) {
 	for i := 0; i < NUM_TILES; i += 1 {
 		x := (i % TILE_ROW_LENGTH) * TILE_DIMENSION
 		y := i / TILE_ROW_LENGTH * TILE_DIMENSION
@@ -43,7 +54,81 @@ draw_grid :: proc(buff: ^[NUM_TILES]u8) {
 		texture := load_texture(buff[i])
 		raylib.DrawTexture(texture, i32(x), i32(y), raylib.WHITE)
 
-		raylib.DrawRectangleLines(i32(x), i32(y), TILE_DIMENSION, TILE_DIMENSION, raylib.BLACK)
+		raylib.DrawRectangleLines(i32(x), i32(y), TILE_DIMENSION, TILE_DIMENSION, raylib.WHITE)
+	}
+}
+
+draw_select_tile_text :: proc(change_tile_open: ^bool) -> bool {
+	rect := raylib.Rectangle{
+		x = 10,
+		y = WINDOW_HEIGHT - 20,
+		width = 55,
+		height = 12,
+	}
+	raylib.DrawRectangleRec(rect, raylib.BLANK)
+	textColor := raylib.BLACK
+
+	if raylib.CheckCollisionPointRec(raylib.GetMousePosition() , rect) {
+		if raylib.IsMouseButtonPressed(.LEFT) {
+			change_tile_open^ = !change_tile_open^
+			return true
+		}
+		textColor = raylib.DARKGRAY
+	}
+
+	raylib.DrawText("Select Tile", 10, WINDOW_HEIGHT - 20, 6, textColor)
+	return false
+}
+
+draw_select_tile_menu :: proc(selected_id: ^int) -> bool {
+	menu_rect := raylib.Rectangle{
+		x = 10,
+		y = WINDOW_HEIGHT - 240,
+		width = 220,
+		height = 220,
+	}
+	menu_color := raylib.Color{
+		200,
+		200,
+		200,
+		175,
+	}
+	
+	raylib.DrawRectangleRec(menu_rect, menu_color)
+	collideable_rects : [TOTAL_TILES]raylib.Rectangle
+
+	for i := 0; i < TOTAL_TILES; i += 1 {
+		x := menu_rect.x + 50 + f32(40 * (i % 3))
+		y := menu_rect.y + 50 + f32(40 *  (i / 3) ) 
+		collide_box_color := raylib.BLANK
+		collide_box := raylib.Rectangle{
+			x = x - 5,
+			y = y - 5,
+			width = 42,
+			height = 42,
+		}
+		collideable_rects[i] = collide_box
+		if i == selected_id^ {
+			collide_box_color = raylib.BLUE
+		}
+
+		raylib.DrawRectangleRec(collide_box, collide_box_color)
+		tile := load_texture(u8(i))
+		raylib.DrawTexture(tile, i32(x), i32(y), raylib.WHITE)
+	}
+
+	if raylib.CheckCollisionPointRec(raylib.GetMousePosition(), menu_rect) && raylib.IsMouseButtonPressed(.LEFT) {
+		check_if_new_selected_tile(selected_id, collideable_rects)
+		return true
+	}
+	return false
+}
+
+check_if_new_selected_tile :: proc(selected_id: ^int, rects: [TOTAL_TILES]raylib.Rectangle) {
+	for rect, idx in rects {
+		if raylib.CheckCollisionPointRec(raylib.GetMousePosition(), rect) {
+			selected_id^ = idx
+		}
 	}
 }
 
