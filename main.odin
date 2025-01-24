@@ -23,6 +23,7 @@ main :: proc() {
 	buff := read_stage_file(0)
 	change_tile_open := false
 	drawing_tile_id := u8(0)
+	safe_to_draw: bool
 
 	for !raylib.WindowShouldClose() {
 		defer free_all(context.temp_allocator)
@@ -33,13 +34,13 @@ main :: proc() {
 		switch_state := draw_select_tile_text(&change_tile_open)
 		click_on_change_window: bool
 		if change_tile_open {
-			click_on_change_window = draw_select_tile_menu(&drawing_tile_id)
+			click_on_change_window = draw_select_tile_menu(&drawing_tile_id, &change_tile_open, switch_state, &safe_to_draw)
 		}
-		if switch_state || click_on_change_window {
+		if switch_state || change_tile_open {
 			continue
 		}
 
-		check_change_tile(drawing_tile_id, 0, buff[:], &change_tile_open)
+		check_change_tile(drawing_tile_id, 0, buff[:], &safe_to_draw)
 	}
 }
 
@@ -77,7 +78,7 @@ draw_select_tile_text :: proc(change_tile_open: ^bool) -> bool {
 	return false
 }
 
-draw_select_tile_menu :: proc(selected_id: ^u8) -> bool {
+draw_select_tile_menu :: proc(selected_id: ^u8, change_tile_open: ^bool, just_opened: bool, safe_to_draw: ^bool) -> bool {
 	menu_rect := raylib.Rectangle{
 		x = 10,
 		y = WINDOW_HEIGHT - 240,
@@ -117,6 +118,10 @@ draw_select_tile_menu :: proc(selected_id: ^u8) -> bool {
 	if raylib.CheckCollisionPointRec(raylib.GetMousePosition(), menu_rect) && raylib.IsMouseButtonPressed(.LEFT) {
 		check_if_new_selected_tile(selected_id, collideable_rects)
 		return true
+	} else if raylib.IsMouseButtonPressed(.LEFT) && !raylib.CheckCollisionPointRec(raylib.GetMousePosition(), menu_rect) && !just_opened {
+		change_tile_open^ = false
+		safe_to_draw^ = false
+		return true
 	}
 	return false
 }
@@ -129,21 +134,21 @@ check_if_new_selected_tile :: proc(selected_id: ^u8, rects: [TOTAL_TILES]raylib.
 	}
 }
 
-check_change_tile :: proc(change_tile: u8, stage_id: u8, stage_data: []u8, change_tile_open: ^bool) {
-	if raylib.IsMouseButtonPressed(.LEFT) {
-		if change_tile_open^ == true {
-			change_tile_open^ = false
-			return
-		}
+check_change_tile :: proc(change_tile: u8, stage_id: u8, stage_data: []u8, safe_to_draw: ^bool) {
+	if raylib.IsMouseButtonReleased(.LEFT) {
+		safe_to_draw^ = true
+	}
+	if raylib.IsMouseButtonDown(.LEFT) && safe_to_draw^ {
 		mouse_coords := raylib.GetMousePosition()
 
 		horizontal_index := int(math.floor(mouse_coords[0] / 32))
 		vertical_index := int(math.floor(mouse_coords[1] / 32))
 
 		selected_tile := horizontal_index + (vertical_index * 40)
-		stage_data[selected_tile] = change_tile 
-
-		write_stage_file(stage_id, stage_data)
+		if stage_data[selected_tile] != change_tile {
+			stage_data[selected_tile] = change_tile 
+			write_stage_file(stage_id, stage_data)
+		}
 	}
 }
 
