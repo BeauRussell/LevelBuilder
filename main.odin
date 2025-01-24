@@ -3,6 +3,7 @@ package main
 import "core:bufio"
 import "core:fmt"
 import "core:math"
+import "core:mem"
 import "core:os"
 import "core:strings"
 import "vendor:raylib"
@@ -16,6 +17,11 @@ NUM_TILES :: TILE_ROW_LENGTH * TILE_COL_LENGTH
 TOTAL_TILES :: 9
 
 main :: proc() {
+	track: mem.Tracking_Allocator
+	mem.tracking_allocator_init(&track, context.allocator)
+	context.allocator = mem.tracking_allocator(&track)
+	defer log_leaks(&track) 
+
     raylib.InitWindow(i32(WINDOW_WIDTH), i32(WINDOW_HEIGHT), "Level Builder")
     raylib.SetTargetFPS(60)
 	raylib.SetTraceLogLevel(.ERROR)
@@ -159,6 +165,7 @@ load_texture :: proc(id: u8) -> raylib.Texture {
 	strings.write_uint(&sb, uint(id))
 	strings.write_string(&sb, ".png")
 	file_path := strings.clone_to_cstring(strings.to_string(sb))
+	defer delete(file_path)
 
 	image := raylib.LoadImage(file_path)
 	defer raylib.UnloadImage(image)
@@ -208,4 +215,19 @@ write_stage_file :: proc(id: u8, stage_data: []u8) -> bool {
 
 build_stage_file_path :: proc(id: u8) -> string {
 	return fmt.tprintf("./stages/%v.dat", id)
+}
+
+log_leaks :: proc(track: ^mem.Tracking_Allocator) {
+	if len(track^.allocation_map) > 0 {
+		for _, entry in track^.allocation_map {
+			fmt.printfln("%v leaked %v bytes", entry.location, entry.size)
+		}
+	}
+	if len(track^.bad_free_array) > 0 {
+		for entry in track^.bad_free_array {
+			fmt.printfln("%v bad free at %v", entry.location, entry.memory)
+		}
+	}
+
+	mem.tracking_allocator_destroy(track)
 }
