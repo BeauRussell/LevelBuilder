@@ -1,7 +1,9 @@
 package main
 
+import "core:bufio"
 import "core:fmt"
 import "core:math"
+import "core:os"
 import "core:strings"
 import "vendor:raylib"
 
@@ -18,11 +20,12 @@ main :: proc() {
     raylib.SetTargetFPS(60)
 	raylib.SetTraceLogLevel(.ERROR)
 
-	buff: [NUM_TILES]u8
+	buff := read_stage_file(0)
 	change_tile_open := false
-	drawing_tile_id := 0
+	drawing_tile_id := u8(0)
 
 	for !raylib.WindowShouldClose() {
+		defer free_all(context.temp_allocator)
 		raylib.BeginDrawing()
 		defer raylib.EndDrawing()
 
@@ -36,13 +39,7 @@ main :: proc() {
 			continue
 		}
 
-		selected_tile := check_mouse_input()
-		if selected_tile == -1 {
-			continue
-		}
-
-		buff[selected_tile] = u8(drawing_tile_id)
-		change_tile_open = false
+		check_change_tile(drawing_tile_id, 0, buff[:], &change_tile_open)
 	}
 }
 
@@ -80,7 +77,7 @@ draw_select_tile_text :: proc(change_tile_open: ^bool) -> bool {
 	return false
 }
 
-draw_select_tile_menu :: proc(selected_id: ^int) -> bool {
+draw_select_tile_menu :: proc(selected_id: ^u8) -> bool {
 	menu_rect := raylib.Rectangle{
 		x = 10,
 		y = WINDOW_HEIGHT - 240,
@@ -108,7 +105,7 @@ draw_select_tile_menu :: proc(selected_id: ^int) -> bool {
 			height = 42,
 		}
 		collideable_rects[i] = collide_box
-		if i == selected_id^ {
+		if u8(i) == selected_id^ {
 			collide_box_color = raylib.BLUE
 		}
 
@@ -124,24 +121,30 @@ draw_select_tile_menu :: proc(selected_id: ^int) -> bool {
 	return false
 }
 
-check_if_new_selected_tile :: proc(selected_id: ^int, rects: [TOTAL_TILES]raylib.Rectangle) {
+check_if_new_selected_tile :: proc(selected_id: ^u8, rects: [TOTAL_TILES]raylib.Rectangle) {
 	for rect, idx in rects {
 		if raylib.CheckCollisionPointRec(raylib.GetMousePosition(), rect) {
-			selected_id^ = idx
+			selected_id^ = u8(idx)
 		}
 	}
 }
 
-check_mouse_input :: proc() -> int {
+check_change_tile :: proc(change_tile: u8, stage_id: u8, stage_data: []u8, change_tile_open: ^bool) {
 	if raylib.IsMouseButtonPressed(.LEFT) {
+		if change_tile_open^ == true {
+			change_tile_open^ = false
+			return
+		}
 		mouse_coords := raylib.GetMousePosition()
 
 		horizontal_index := int(math.floor(mouse_coords[0] / 32))
 		vertical_index := int(math.floor(mouse_coords[1] / 32))
 
-		return horizontal_index + (vertical_index * 40)
+		selected_tile := horizontal_index + (vertical_index * 40)
+		stage_data[selected_tile] = change_tile 
+
+		write_stage_file(stage_id, stage_data)
 	}
-	return -1
 }
 
 load_texture :: proc(id: u8) -> raylib.Texture {
@@ -156,4 +159,48 @@ load_texture :: proc(id: u8) -> raylib.Texture {
 	defer raylib.UnloadImage(image)
 
 	return raylib.LoadTextureFromImage(image)
+}
+
+read_stage_file :: proc(id: u8) -> [NUM_TILES]u8 {
+	stage: [NUM_TILES]u8
+
+	f, ferr := os.open(build_stage_file_path(id), os.O_RDONLY, 0o666)
+	if ferr != nil {
+		fmt.printf("Stage file failed to open for id %i, using new buffer: %v\n", id, os.error_string(ferr))
+		return stage
+	}
+	defer os.close(f)
+
+	r: bufio.Reader
+	bufio.reader_init_with_buf(&r, os.stream_from_handle(f), stage[:])
+	defer bufio.reader_destroy(&r)
+
+	bufio.reader_read(&r, stage[:])
+
+	return stage
+}
+
+write_stage_file :: proc(id: u8, stage_data: []u8) -> bool {
+	if ok := os.is_dir("./stages"); ok != true {
+		os.make_directory("./stages")
+	}
+
+	f, ferr := os.open(build_stage_file_path(id), os.O_CREATE|os.O_WRONLY, 0o666)
+	if ferr != nil {
+		fmt.printf("Stage file failed to open for id %i: %s\n", id, os.error_string(ferr))
+		return false
+	}
+	defer os.close(f)
+
+	_, werr := os.write(f, stage_data)
+	if werr != nil {
+		fmt.printf("Failed to write new stage data to file for id %i: %s\n", id, os.error_string(werr))
+		return false
+	}
+
+	return true 
+}
+
+build_stage_file_path :: proc(id: u8) -> string {
+	return fmt.tprintf("./stages/%v.dat", id)
 }
